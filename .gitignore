@@ -1,0 +1,9 @@
+# Ignore local video files and upload artifacts
+*.mp4
+*.mov
+*.avi
+uploads/
+
+# Python cache
+__pycache__/
+*.py[cod]
