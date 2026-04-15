@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testing Mode - Speed & Detection</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Testing Mode specific styles */
+        .test-dashboard {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: var(--bg-color);
+        }
+
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.8rem 2rem;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border-bottom: 2px solid #f59e0b;
+        }
+
+        .test-header h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            color: #f59e0b;
+        }
+
+        .test-header .mode-badge {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #000;
+            padding: 0.3rem 1rem;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+
+        .test-header a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: color 0.2s;
+        }
+        .test-header a:hover { color: var(--accent); }
+
+        .test-main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .test-video-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #000;
+        }
+
+        .test-controls-bar {
+            display: flex;
+            align-items: center;
+            gap: 1.2rem;
+            padding: 0.6rem 1.2rem;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .test-video-area {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .test-video-area img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Upload dropzone */
+        .upload-zone {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            border: 3px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 4rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            max-width: 600px;
+        }
+        .upload-zone:hover {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.05);
+        }
+        .upload-zone.dragging {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4rem;
+            opacity: 0.6;
+        }
+
+        .upload-text {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            text-align: center;
+        }
+        .upload-text strong {
+            color: #f59e0b;
+        }
+
+        .upload-btn {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #000;
+            border: none;
+            padding: 0.7rem 2rem;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+        .upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+        }
+
+        .upload-spinner {
+            display: none;
+            color: #f59e0b;
+            font-size: 1rem;
+        }
+
+        /* Test sidebar */
+        .test-sidebar {
+            width: 360px;
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            padding: 1.2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+        }
+
+        .test-stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+        }
+
+        .stat-card {
+            background: var(--bg-color);
+            padding: 0.8rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-card .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #f59e0b;
+        }
+        .stat-card .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+        }
+
+        /* Calibration modal for testing */
+        .test-calib-modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-dashboard">
+        <header class="test-header">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <h1>🧪 Testing Mode</h1>
+                <span class="mode-badge">TESTING</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 2rem;">
+                <a href="/">← Back to Dashboard</a>
+            </div>
+        </header>
+
+        <main class="test-main">
+            <section class="test-video-section">
+                <!-- Controls bar -->
+                <div class="test-controls-bar" id="test-controls" style="display: none;">
+                    <div class="control-group speed-control">
+                        <label for="test-speed-slider">⚡ Speed Limit:</label>
+                        <input type="range" id="test-speed-slider" min="0" max="120" value="60" step="5" 
+                               oninput="document.getElementById('test-speed-val').textContent = this.value + ' km/h'"
+                               onchange="applyTestSettings()">
+                        <span id="test-speed-val" class="speed-badge">60 km/h</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="test-display-mode">🖥️ Display:</label>
+                        <select id="test-display-mode" onchange="applyTestSettings()">
+                            <option value="both">Speed + Boxes</option>
+                            <option value="speed">Speed Only</option>
+                            <option value="bbox">Boxes Only</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="btn-calibrate" onclick="openTestCalibration()">📐 Calibrate Lines</button>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="upload-btn" style="padding: 0.4rem 1rem; font-size: 0.82rem;" onclick="document.getElementById('file-input-change').click()">📂 Change Video</button>
+                        <input type="file" id="file-input-change" accept="video/*" style="display:none" onchange="uploadVideo(this.files[0])">
+                    </div>
+                </div>
+
+                <!-- Video Area -->
+                <div class="test-video-area">
+                    <!-- Upload zone (shown initially) -->
+                    <div class="upload-zone" id="upload-zone"
+                         ondragover="event.preventDefault(); this.classList.add('dragging')"
+                         ondragleave="this.classList.remove('dragging')"
+                         ondrop="event.preventDefault(); this.classList.remove('dragging'); uploadVideo(event.dataTransfer.files[0])"
+                         onclick="document.getElementById('file-input').click()">
+                        <div class="upload-icon">📹</div>
+                        <div class="upload-text">
+                            <strong>Drop a video here</strong> or click to browse<br>
+                            <small>Supports MP4, MOV, AVI</small>
+                        </div>
+                        <button class="upload-btn" onclick="event.stopPropagation(); document.getElementById('file-input').click()">Choose Video File</button>
+                        <div class="upload-spinner" id="upload-spinner">⏳ Uploading & processing...</div>
+                        <input type="file" id="file-input" accept="video/*" style="display:none" onchange="uploadVideo(this.files[0])">
+                    </div>
+
+                    <!-- Video feed (hidden initially) -->
+                    <img id="test-video-stream" src="" alt="Test Feed" style="display: none;">
+                </div>
+            </section>
+
+            <aside class="test-sidebar">
+                <div class="panel">
+                    <h3>📊 Live Stats</h3>
+                    <div class="test-stat-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-tracked">0</div>
+                            <div class="stat-label">Tracked Vehicles</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-speeds">0</div>
+                            <div class="stat-label">Speeds Measured</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel infractions-panel">
+                    <h3>🚨 Overspeeding Detections</h3>
+                    <ul class="infractions-list" id="test-infractions-list">
+                        <li class="empty-list">Upload a video to start testing.</li>
+                    </ul>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Test Calibration Modal -->
+    <div class="test-calib-modal" id="test-calib-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📐 Speed Trap Calibration</h2>
+                <button class="modal-close" onclick="closeTestCalibration()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="calibration-instructions">
+                    <p id="test-calib-hint" class="calibration-hint">
+                        Click on the frame to set Line A (top), then Line B (bottom). These define the speed measurement zone.
+                    </p>
+                </div>
+                <div id="test-calib-canvas-area">
+                    <div class="calibration-canvas-wrapper">
+                        <canvas id="test-calib-canvas" width="960" height="540"></canvas>
+                    </div>
+                    <div class="calibration-info-row">
+                        <div class="info-chip" id="test-p1-info">Line A: Not set</div>
+                        <div class="info-chip" id="test-p2-info">Line B: Not set</div>
+                        <div class="info-chip highlight" id="test-px-dist">Pixel Gap: --</div>
+                    </div>
+                    <div class="calibration-reference">
+                        <p>🛣️ <strong>Indian road standard:</strong> White dash = <strong>3m</strong>, Gap = <strong>6m</strong></p>
+                        <div class="reference-input-row">
+                            <label>Real-world distance:</label>
+                            <input type="number" id="test-real-dist" value="3" min="1" max="50" step="0.5"> <span>meters</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="resetTestCalibration()">🔄 Reset</button>
+                <button class="btn-primary" id="test-calib-confirm" onclick="applyTestCalibration()" disabled>✓ Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let testCalibPoints = { p1: null, p2: null };
+
+        // ===== Upload Video =====
+        async function uploadVideo(file) {
+            if (!file) return;
+
+            const spinner = document.getElementById('upload-spinner');
+            spinner.style.display = 'block';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const resp = await fetch('/api/test/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await resp.json();
+
+                if (data.status === 'success') {
+                    // Switch to video view
+                    document.getElementById('upload-zone').style.display = 'none';
+                    const stream = document.getElementById('test-video-stream');
+                    stream.style.display = 'block';
+                    stream.src = '/test_feed?t=' + Date.now();
+                    document.getElementById('test-controls').style.display = 'flex';
+                }
+            } catch (e) {
+                console.error('Upload failed:', e);
+                alert('Upload failed. Please try again.');
+            }
+
+            spinner.style.display = 'none';
+        }
+
+        // ===== Settings =====
+        async function applyTestSettings() {
+            const limit = parseInt(document.getElementById('test-speed-slider').value);
+            const mode = document.getElementById('test-display-mode').value;
+
+            try {
+                await fetch('/api/test/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ speed_limit: limit, display_mode: mode })
+                });
+            } catch (e) {
+                console.error('Settings failed:', e);
+            }
+        }
+
+        // ===== Calibration =====
+        async function openTestCalibration() {
+            resetTestCalibration();
+            document.getElementById('test-calib-modal').style.display = 'flex';
+
+            // Capture frame
+            try {
+                const resp = await fetch('/api/test/capture_frame');
+                const data = await resp.json();
+                const canvas = document.getElementById('test-calib-canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                img.src = 'data:image/jpeg;base64,' + data.image;
+                canvas.onclick = handleTestCanvasClick;
+            } catch (e) {
+                document.getElementById('test-calib-hint').textContent = '❌ No video loaded. Upload first.';
+            }
+        }
+
+        function closeTestCalibration() {
+            document.getElementById('test-calib-modal').style.display = 'none';
+        }
+
+        function resetTestCalibration() {
+            testCalibPoints = { p1: null, p2: null };
+            document.getElementById('test-p1-info').textContent = 'Line A: Not set';
+            document.getElementById('test-p2-info').textContent = 'Line B: Not set';
+            document.getElementById('test-px-dist').textContent = 'Pixel Gap: --';
+            document.getElementById('test-calib-confirm').disabled = true;
+            document.getElementById('test-calib-hint').textContent = 'Click on the frame to set Line A (top), then Line B (bottom).';
+        }
+
+        function handleTestCanvasClick(e) {
+            const canvas = document.getElementById('test-calib-canvas');
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            if (!testCalibPoints.p1) {
+                testCalibPoints.p1 = { x: Math.round(x), y: Math.round(y) };
+                ctx.beginPath();
+                ctx.setLineDash([]);
+                ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = '#10b981';
+                ctx.font = 'bold 14px Inter';
+                ctx.fillText('LINE A', 10, y - 8);
+
+                document.getElementById('test-p1-info').textContent = 'Line A: Y=' + testCalibPoints.p1.y;
+                document.getElementById('test-calib-hint').textContent = 'Now click to set Line B (bottom of speed zone).';
+            } else if (!testCalibPoints.p2) {
+                testCalibPoints.p2 = { x: Math.round(x), y: Math.round(y) };
+                ctx.beginPath();
+                ctx.setLineDash([]);
+                ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = '#ef4444';
+                ctx.font = 'bold 14px Inter';
+                ctx.fillText('LINE B', 10, y - 8);
+
+                const gap = Math.abs(testCalibPoints.p2.y - testCalibPoints.p1.y);
+                document.getElementById('test-p2-info').textContent = 'Line B: Y=' + testCalibPoints.p2.y;
+                document.getElementById('test-px-dist').textContent = 'Pixel Gap: ' + gap + ' px';
+                document.getElementById('test-calib-hint').textContent = '✅ Both lines set! Click Apply to calibrate.';
+                document.getElementById('test-calib-confirm').disabled = false;
+                canvas.onclick = null;
+            }
+        }
+
+        async function applyTestCalibration() {
+            if (!testCalibPoints.p1 || !testCalibPoints.p2) return;
+            const realDist = parseFloat(document.getElementById('test-real-dist').value);
+
+            try {
+                await fetch('/api/test/calibrate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        p1: testCalibPoints.p1.y,
+                        p2: testCalibPoints.p2.y,
+                        real_m: realDist
+                    })
+                });
+                document.getElementById('test-calib-hint').textContent = '🎉 Calibration applied!';
+                setTimeout(closeTestCalibration, 1500);
+            } catch (e) {
+                document.getElementById('test-calib-hint').textContent = '❌ Calibration failed.';
+            }
+        }
+
+        // ===== State Polling =====
+        async function pollTestState() {
+            try {
+                const resp = await fetch('/api/test/state');
+                const data = await resp.json();
+
+                document.getElementById('stat-tracked').textContent = data.tracked_count;
+                document.getElementById('stat-speeds').textContent = data.speed_count;
+
+                // Infractions
+                const list = document.getElementById('test-infractions-list');
+                if (data.infractions.length === 0) {
+                    list.innerHTML = '<li class="empty-list">No overspeeding detected yet.</li>';
+                } else {
+                    list.innerHTML = '';
+                    data.infractions.slice(0, 20).forEach(inf => {
+                        list.innerHTML += `
+                            <li class="infraction-item">
+                                <div class="infraction-details">
+                                    <span class="plate">Vehicle #${inf.id}</span>
+                                    <span class="infraction-meta">${inf.type} · ${inf.timestamp}</span>
+                                </div>
+                                <span class="speed">${inf.speed} km/h</span>
+                            </li>
+                        `;
+                    });
+                }
+
+                // Sync controls
+                if (data.has_video) {
+                    const slider = document.getElementById('test-speed-slider');
+                    if (parseInt(slider.value) !== Math.round(data.speed_limit)) {
+                        slider.value = Math.round(data.speed_limit);
+                        document.getElementById('test-speed-val').textContent = Math.round(data.speed_limit) + ' km/h';
+                    }
+                    const dropdown = document.getElementById('test-display-mode');
+                    if (dropdown.value !== data.display_mode) {
+                        dropdown.value = data.display_mode;
+                    }
+                }
+            } catch (e) {
+                console.error('Poll failed:', e);
+            }
+        }
+
+        setInterval(pollTestState, 1000);
+        pollTestState();
+    </script>
+</body>
+</html>

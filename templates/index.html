@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City AI Traffic Manager</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Mode Switcher */
+        .mode-switcher {
+            display: flex;
+            background: var(--bg-color);
+            border-radius: 8px;
+            padding: 3px;
+            gap: 2px;
+        }
+        .mode-btn {
+            padding: 0.4rem 1.2rem;
+            border: none;
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-muted);
+            background: transparent;
+        }
+        .mode-btn.active {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+        }
+        .mode-btn.active.test-active {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #000;
+            box-shadow: 0 2px 8px rgba(245,158,11,0.3);
+        }
+        .mode-btn:hover:not(.active) {
+            color: var(--text-main);
+            background: var(--card-bg);
+        }
+
+        /* Testing Mode Styles */
+        .test-upload-zone {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            border: 3px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 4rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            max-width: 600px;
+        }
+        .test-upload-zone:hover {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.05);
+        }
+        .test-upload-zone.dragging {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+            transform: scale(1.02);
+        }
+        .test-upload-icon { font-size: 4rem; opacity: 0.6; }
+        .test-upload-text { color: var(--text-muted); font-size: 1.1rem; text-align: center; }
+        .test-upload-text strong { color: #f59e0b; }
+        .test-upload-btn {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #000; border: none;
+            padding: 0.7rem 2rem; border-radius: 8px;
+            font-weight: 700; font-size: 1rem; cursor: pointer;
+            font-family: 'Inter', sans-serif; transition: all 0.2s;
+        }
+        .test-upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+        }
+
+        .test-stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+        }
+        .stat-card {
+            background: var(--bg-color);
+            padding: 0.8rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-card .stat-value {
+            font-size: 1.5rem; font-weight: 700; color: #f59e0b;
+        }
+        .stat-card .stat-label {
+            font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;
+        }
+
+        .test-mode-badge {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(245, 158, 11, 0.9);
+            color: #000; padding: 0.2rem 0.8rem;
+            border-radius: 4px; font-weight: 700; font-size: 0.75rem;
+            letter-spacing: 1px; z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <div class="header-left">
+                <h1>🚦 Smart City AI Traffic Manager</h1>
+                <p id="tagline">Real-time PCU mapping, Ambulance Preemption & Overspeeding OCR</p>
+            </div>
+            
+            <div class="header-controls">
+                <!-- Mode Switcher -->
+                <div class="mode-switcher">
+                    <button class="mode-btn active" id="mode-traffic-btn" onclick="switchMode('traffic')">🚦 Traffic Management</button>
+                    <button class="mode-btn" id="mode-test-btn" onclick="switchMode('testing')">🧪 Testing Mode</button>
+                </div>
+
+                <div class="toggle-container" id="police-toggle-container">
+                    <span class="toggle-label" id="police-status">👮 Manual Police Override: OFF</span>
+                    <label class="switch">
+                        <input type="checkbox" id="police-toggle" onchange="togglePoliceOverride(this)">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div id="police-in-frame-alert" class="hidden">🚨 POLICE OFFICER IN FRAME</div>
+            </div>
+        </header>
+
+        <!-- ==================== TRAFFIC MANAGEMENT MODE ==================== -->
+        <main class="main-content" id="traffic-mode">
+            <section class="video-section">
+                <div class="video-controls-bar">
+                    <div class="control-group">
+                        <label for="lane-select">🔍 View:</label>
+                        <select id="lane-select" onchange="switchView(this.value)">
+                            <option value="all">All Lanes (Grid)</option>
+                            <option value="0">Lane 1 Only</option>
+                            <option value="1">Lane 2 Only</option>
+                            <option value="2">Lane 3 Only</option>
+                            <option value="3">Lane 4 Only</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group speed-control">
+                        <label for="speed-slider">⚡ Speed Limit:</label>
+                        <input type="range" id="speed-slider" min="0" max="120" value="60" step="5" oninput="updateSpeedDisplay(this.value)" onchange="applySpeedLimit()">
+                        <span id="speed-value" class="speed-badge">60 km/h</span>
+                        <button class="btn-apply" id="apply-speed-btn" onclick="applySpeedLimit()">Apply</button>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="btn-calibrate" onclick="openCalibration()">📐 Calibrate Speed Trap</button>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="display-mode">🖥️ Display:</label>
+                        <select id="display-mode" onchange="switchDisplayMode(this.value)">
+                            <option value="both">Speed + Boxes</option>
+                            <option value="speed">Speed Only</option>
+                            <option value="bbox">Boxes Only</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="video-container">
+                    <img id="video-stream" src="/video_feed" alt="Live Traffic Feed">
+                </div>
+            </section>
+
+            <aside class="sidebar">
+                <div class="panel alert-panel" id="global-alerts" style="display: none;">
+                    <h3>🚨 Active Emergencies</h3>
+                    <ul id="alert-list"></ul>
+                </div>
+
+                <div class="panel">
+                    <h3>📊 Lane Status & PCU Density</h3>
+                    <div class="lanes-grid" id="lanes-container"></div>
+                </div>
+
+                <div class="panel infractions-panel">
+                    <h3>📸 Overspeeding Infractions</h3>
+                    <ul class="infractions-list" id="infractions-list"></ul>
+                </div>
+            </aside>
+        </main>
+
+        <!-- ==================== TESTING MODE ==================== -->
+        <main class="main-content" id="testing-mode" style="display: none;">
+            <section class="video-section">
+                <!-- Test Controls Bar -->
+                <div class="video-controls-bar" id="test-controls-bar" style="display: none;">
+                    <div class="control-group speed-control">
+                        <label for="test-speed-slider">⚡ Speed Limit:</label>
+                        <input type="range" id="test-speed-slider" min="0" max="120" value="60" step="5"
+                               oninput="document.getElementById('test-speed-val').textContent = this.value + ' km/h'"
+                               onchange="applyTestSettings()">
+                        <span id="test-speed-val" class="speed-badge">60 km/h</span>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="test-display-mode">🖥️ Display:</label>
+                        <select id="test-display-mode" onchange="applyTestSettings()">
+                            <option value="both">Speed + Boxes</option>
+                            <option value="speed">Speed Only</option>
+                            <option value="bbox">Boxes Only</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="btn-calibrate" onclick="openTestCalibration()">📐 Calibrate Lines</button>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="test-upload-btn" style="padding:0.4rem 1rem; font-size:0.82rem;" onclick="document.getElementById('test-file-change').click()">📂 Change Video</button>
+                        <input type="file" id="test-file-change" accept="video/*" style="display:none" onchange="uploadTestVideo(this.files[0])">
+                    </div>
+                </div>
+
+                <div class="video-container" style="position: relative;">
+                    <!-- Upload zone -->
+                    <div class="test-upload-zone" id="test-upload-zone"
+                         ondragover="event.preventDefault(); this.classList.add('dragging')"
+                         ondragleave="this.classList.remove('dragging')"
+                         ondrop="event.preventDefault(); this.classList.remove('dragging'); uploadTestVideo(event.dataTransfer.files[0])"
+                         onclick="document.getElementById('test-file-input').click()">
+                        <div class="test-upload-icon">📹</div>
+                        <div class="test-upload-text">
+                            <strong>Drop a video here</strong> or click to browse<br>
+                            <small>Supports MP4, MOV, AVI</small>
+                        </div>
+                        <button class="test-upload-btn" onclick="event.stopPropagation(); document.getElementById('test-file-input').click()">Choose Video File</button>
+                        <div id="test-upload-spinner" style="display:none; color:#f59e0b;">⏳ Uploading...</div>
+                        <input type="file" id="test-file-input" accept="video/*" style="display:none" onchange="uploadTestVideo(this.files[0])">
+                    </div>
+
+                    <!-- Test video stream -->
+                    <img id="test-video-stream" src="" alt="Test Feed" style="display: none;">
+                    <div class="test-mode-badge" id="test-badge" style="display:none;">🧪 TESTING MODE</div>
+                </div>
+            </section>
+
+            <aside class="sidebar">
+                <div class="panel">
+                    <h3>📊 Live Stats</h3>
+                    <div class="test-stat-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-tracked">0</div>
+                            <div class="stat-label">Tracked Vehicles</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-speeds">0</div>
+                            <div class="stat-label">Speeds Measured</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel infractions-panel">
+                    <h3>🚨 Overspeeding Detections</h3>
+                    <ul class="infractions-list" id="test-infractions-list">
+                        <li class="empty-list">Upload a video to start testing.</li>
+                    </ul>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Traffic Calibration Modal -->
+    <div class="modal-overlay" id="calibration-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📐 Speed Trap Calibration</h2>
+                <button class="modal-close" onclick="closeCalibration()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="calibration-instructions">
+                    <div class="step-indicator">
+                        <span class="step active" id="step-1-indicator">1. Select Lane</span>
+                        <span class="step-arrow">→</span>
+                        <span class="step" id="step-2-indicator">2. Pick Point 1</span>
+                        <span class="step-arrow">→</span>
+                        <span class="step" id="step-3-indicator">3. Pick Point 2</span>
+                        <span class="step-arrow">→</span>
+                        <span class="step" id="step-4-indicator">4. Confirm</span>
+                    </div>
+                    <p id="calibration-hint" class="calibration-hint">Select a lane to capture its first frame for calibration.</p>
+                </div>
+                <div id="calib-step-1">
+                    <div class="calib-lane-buttons">
+                        <button class="btn-lane" onclick="captureFrameForCalibration(0)">Lane 1</button>
+                        <button class="btn-lane" onclick="captureFrameForCalibration(1)">Lane 2</button>
+                        <button class="btn-lane" onclick="captureFrameForCalibration(2)">Lane 3</button>
+                        <button class="btn-lane" onclick="captureFrameForCalibration(3)">Lane 4</button>
+                    </div>
+                </div>
+                <div id="calib-step-2" style="display: none;">
+                    <div class="calibration-canvas-wrapper">
+                        <canvas id="calibration-canvas" width="960" height="540"></canvas>
+                    </div>
+                    <div class="calibration-info-row">
+                        <div class="info-chip" id="point1-info">Point 1: Not set</div>
+                        <div class="info-chip" id="point2-info">Point 2: Not set</div>
+                        <div class="info-chip highlight" id="pixel-dist-info">Pixel Distance: --</div>
+                    </div>
+                    <div class="calibration-reference">
+                        <p>🛣️ <strong>Indian road standard:</strong> White dash line = <strong>3m</strong>, Gap between lines = <strong>6m</strong></p>
+                        <div class="reference-input-row">
+                            <label>Real-world distance between selected points:</label>
+                            <input type="number" id="real-distance-input" value="3" min="1" max="50" step="0.5"> <span>meters</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="calib-step-4" style="display: none;">
+                    <div class="calibration-summary">
+                        <p>✅ <strong>Calibration Summary</strong></p>
+                        <div class="summary-grid">
+                            <span>Lane:</span> <span id="summary-lane">--</span>
+                            <span>Point 1 (Y):</span> <span id="summary-p1">--</span>
+                            <span>Point 2 (Y):</span> <span id="summary-p2">--</span>
+                            <span>Pixel Gap:</span> <span id="summary-pixels">--</span>
+                            <span>Real Distance:</span> <span id="summary-real">-- m</span>
+                            <span>Pixels/Meter:</span> <span id="summary-ppm">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="resetCalibration()">🔄 Reset</button>
+                <button class="btn-primary" id="confirm-calib-btn" onclick="confirmCalibration()" disabled>✓ Apply Calibration</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Calibration Modal -->
+    <div class="modal-overlay" id="test-calibration-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📐 Test Speed Trap Calibration</h2>
+                <button class="modal-close" onclick="closeTestCalibration()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="test-calib-hint" class="calibration-hint">Click on the frame to set Line A (top), then Line B (bottom).</p>
+                <div class="calibration-canvas-wrapper">
+                    <canvas id="test-calib-canvas" width="960" height="540"></canvas>
+                </div>
+                <div class="calibration-info-row">
+                    <div class="info-chip" id="test-p1-info">Line A: Not set</div>
+                    <div class="info-chip" id="test-p2-info">Line B: Not set</div>
+                    <div class="info-chip highlight" id="test-px-dist">Pixel Gap: --</div>
+                </div>
+                <div class="calibration-reference">
+                    <p>🛣️ <strong>Indian road standard:</strong> White dash = <strong>3m</strong>, Gap = <strong>6m</strong></p>
+                    <div class="reference-input-row">
+                        <label>Real-world distance:</label>
+                        <input type="number" id="test-real-dist" value="3" min="1" max="50" step="0.5"> <span>meters</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="resetTestCalibration()">🔄 Reset</button>
+                <button class="btn-primary" id="test-calib-confirm" onclick="applyTestCalibration()" disabled>✓ Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Global State =====
+        let currentMode = 'traffic';
+        let currentLaneView = 'all';
+        let calibState = { laneIdx: -1, point1: null, point2: null, imageData: null };
+        let testCalibPoints = { p1: null, p2: null };
+
+        // ===== Mode Switcher =====
+        function switchMode(mode) {
+            currentMode = mode;
+            const trafficMode = document.getElementById('traffic-mode');
+            const testingMode = document.getElementById('testing-mode');
+            const trafficBtn = document.getElementById('mode-traffic-btn');
+            const testBtn = document.getElementById('mode-test-btn');
+            const policeContainer = document.getElementById('police-toggle-container');
+            const policeAlert = document.getElementById('police-in-frame-alert');
+
+            const tagline = document.getElementById('tagline');
+            if (mode === 'traffic') {
+                trafficMode.style.display = 'flex';
+                testingMode.style.display = 'none';
+                trafficBtn.classList.add('active');
+                trafficBtn.classList.remove('test-active');
+                testBtn.classList.remove('active', 'test-active');
+                policeContainer.style.display = 'flex';
+                policeAlert.style.display = '';
+                if (tagline) {
+                    tagline.textContent = 'Real-time PCU mapping, Ambulance Preemption & Overspeeding OCR';
+                }
+            } else {
+                trafficMode.style.display = 'none';
+                testingMode.style.display = 'flex';
+                testBtn.classList.add('active', 'test-active');
+                trafficBtn.classList.remove('active');
+                policeContainer.style.display = 'none';
+                policeAlert.style.display = 'none';
+                if (tagline) {
+                    tagline.textContent = 'Testing mode: speed detection and calibration only';
+                }
+            }
+        }
+
+        // ===== TRAFFIC MODE: View Switching =====
+        function switchView(value) {
+            currentLaneView = value;
+            const stream = document.getElementById('video-stream');
+            const ts = Date.now();
+            if (value === 'all') {
+                stream.src = '/video_feed?t=' + ts;
+            } else {
+                stream.src = '/video_feed/' + value + '?t=' + ts;
+            }
+        }
+
+        // ===== TRAFFIC MODE: Display Mode =====
+        async function switchDisplayMode(mode) {
+            try {
+                await fetch('/api/set_display_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: mode })
+                });
+            } catch(e) { console.error('Display mode failed', e); }
+        }
+
+        // ===== TRAFFIC MODE: Speed Limit =====
+        function updateSpeedDisplay(val) {
+            document.getElementById('speed-value').textContent = val + ' km/h';
+            document.getElementById('apply-speed-btn').classList.add('pulse');
+        }
+
+        async function applySpeedLimit() {
+            const limit = parseInt(document.getElementById('speed-slider').value);
+            const btn = document.getElementById('apply-speed-btn');
+            btn.classList.remove('pulse');
+            btn.textContent = '...';
+            try {
+                await fetch('/api/set_speed_limit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit: limit })
+                });
+                btn.textContent = '✓ Applied';
+                btn.classList.add('applied');
+                setTimeout(() => { btn.textContent = 'Apply'; btn.classList.remove('applied'); }, 2000);
+            } catch(e) {
+                btn.textContent = 'Error!';
+                setTimeout(() => { btn.textContent = 'Apply'; }, 2000);
+            }
+        }
+
+        // ===== TRAFFIC MODE: Police Override =====
+        async function togglePoliceOverride(checkbox) {
+            const enabled = checkbox.checked;
+            document.getElementById('police-status').innerText = enabled ? "👮 Manual Police Override: ON" : "👮 Manual Police Override: OFF";
+            try {
+                await fetch('/api/toggle_police', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+            } catch(e) { console.error("Toggle API failed", e); }
+        }
+
+        // ===== TRAFFIC MODE: Calibration =====
+        function openCalibration() { resetCalibration(); document.getElementById('calibration-modal').style.display = 'flex'; }
+        function closeCalibration() { document.getElementById('calibration-modal').style.display = 'none'; }
+
+        function resetCalibration() {
+            calibState = { laneIdx: -1, point1: null, point2: null, imageData: null };
+            document.getElementById('calib-step-1').style.display = 'block';
+            document.getElementById('calib-step-2').style.display = 'none';
+            document.getElementById('calib-step-4').style.display = 'none';
+            document.getElementById('confirm-calib-btn').disabled = true;
+            document.getElementById('point1-info').textContent = 'Point 1: Not set';
+            document.getElementById('point2-info').textContent = 'Point 2: Not set';
+            document.getElementById('pixel-dist-info').textContent = 'Pixel Distance: --';
+            document.getElementById('calibration-hint').textContent = 'Select a lane to capture its first frame for calibration.';
+            document.querySelectorAll('.step-indicator .step').forEach((el, i) => {
+                el.classList.toggle('active', i === 0);
+                el.classList.remove('done');
+            });
+        }
+
+        async function captureFrameForCalibration(laneIdx) {
+            calibState.laneIdx = laneIdx;
+            document.getElementById('calibration-hint').textContent = '⏳ Capturing frame from Lane ' + (laneIdx + 1) + '...';
+            try {
+                const resp = await fetch('/api/capture_frame/' + laneIdx);
+                const data = await resp.json();
+                calibState.imageData = data;
+                const canvas = document.getElementById('calibration-canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                img.src = 'data:image/jpeg;base64,' + data.image;
+                document.getElementById('calib-step-1').style.display = 'none';
+                document.getElementById('calib-step-2').style.display = 'block';
+                setStepActive(1);
+                document.getElementById('calibration-hint').textContent = 'Click on the frame to select Point 1.';
+                canvas.onclick = handleCanvasClick;
+            } catch(e) {
+                document.getElementById('calibration-hint').textContent = '❌ Failed to capture frame.';
+            }
+        }
+
+        function handleCanvasClick(e) {
+            const canvas = document.getElementById('calibration-canvas');
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            if (!calibState.point1) {
+                calibState.point1 = { x: Math.round(x), y: Math.round(y) };
+                ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI); ctx.fillStyle = '#10b981'; ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Inter'; ctx.fillText('P1', x + 12, y + 5);
+                ctx.beginPath(); ctx.setLineDash([5, 5]); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)'; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+                document.getElementById('point1-info').textContent = 'Point 1: (' + calibState.point1.x + ', ' + calibState.point1.y + ')';
+                document.getElementById('calibration-hint').textContent = 'Now click to select Point 2.';
+                setStepActive(2);
+            } else if (!calibState.point2) {
+                calibState.point2 = { x: Math.round(x), y: Math.round(y) };
+                ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI); ctx.fillStyle = '#ef4444'; ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Inter'; ctx.fillText('P2', x + 12, y + 5);
+                ctx.beginPath(); ctx.setLineDash([5, 5]); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+                ctx.beginPath(); ctx.setLineDash([]); ctx.moveTo(calibState.point1.x, calibState.point1.y);
+                ctx.lineTo(calibState.point2.x, calibState.point2.y); ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2; ctx.stroke();
+                const pixDist = Math.round(Math.sqrt(Math.pow(calibState.point2.x - calibState.point1.x, 2) + Math.pow(calibState.point2.y - calibState.point1.y, 2)));
+                document.getElementById('point2-info').textContent = 'Point 2: (' + calibState.point2.x + ', ' + calibState.point2.y + ')';
+                document.getElementById('pixel-dist-info').textContent = 'Pixel Distance: ' + pixDist + ' px';
+                document.getElementById('calibration-hint').textContent = '✅ Both points selected! Review and apply.';
+                setStepActive(3);
+                const realDist = parseFloat(document.getElementById('real-distance-input').value);
+                document.getElementById('summary-lane').textContent = 'Lane ' + (calibState.laneIdx + 1);
+                document.getElementById('summary-p1').textContent = calibState.point1.y + ' px';
+                document.getElementById('summary-p2').textContent = calibState.point2.y + ' px';
+                document.getElementById('summary-pixels').textContent = pixDist + ' px';
+                document.getElementById('summary-real').textContent = realDist + ' m';
+                document.getElementById('summary-ppm').textContent = (pixDist / realDist).toFixed(2) + ' px/m';
+                document.getElementById('calib-step-4').style.display = 'block';
+                document.getElementById('confirm-calib-btn').disabled = false;
+                canvas.onclick = null;
+            }
+        }
+
+        function setStepActive(idx) {
+            document.querySelectorAll('.step-indicator .step').forEach((el, i) => {
+                el.classList.remove('active');
+                if (i < idx) el.classList.add('done');
+                if (i === idx) el.classList.add('active');
+            });
+        }
+
+        async function confirmCalibration() {
+            if (!calibState.point1 || !calibState.point2) return;
+            const realDist = parseFloat(document.getElementById('real-distance-input').value);
+            try {
+                const resp = await fetch('/api/calibrate_lane', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lane_idx: calibState.laneIdx, p1: calibState.point1.y, p2: calibState.point2.y, real_m: realDist })
+                });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    document.getElementById('calibration-hint').textContent = '🎉 Calibration applied for Lane ' + (calibState.laneIdx + 1) + '!';
+                    document.getElementById('confirm-calib-btn').textContent = '✓ Done!';
+                    document.getElementById('confirm-calib-btn').disabled = true;
+                    setTimeout(closeCalibration, 2000);
+                }
+            } catch(e) { document.getElementById('calibration-hint').textContent = '❌ Calibration failed.'; }
+        }
+
+        // ===== TRAFFIC MODE: State Polling =====
+        async function fetchState() {
+            if (currentMode !== 'traffic') return;
+            try {
+                const response = await fetch('/api/state');
+                const data = await response.json();
+                const policeAlert = document.getElementById('police-in-frame-alert');
+                if(data.police_detected) { policeAlert.classList.remove('hidden'); } else { policeAlert.classList.add('hidden'); }
+                const slider = document.getElementById('speed-slider');
+                const speedDisplay = document.getElementById('speed-value');
+                if (parseInt(slider.value) !== Math.round(data.global_speed_limit)) {
+                    slider.value = Math.round(data.global_speed_limit);
+                    speedDisplay.textContent = Math.round(data.global_speed_limit) + ' km/h';
+                }
+                const displayDropdown = document.getElementById('display-mode');
+                if (displayDropdown.value !== data.display_mode) { displayDropdown.value = data.display_mode; }
+                const alertPanel = document.getElementById('global-alerts');
+                const alertList = document.getElementById('alert-list');
+                alertList.innerHTML = '';
+                let hasAlerts = false;
+                const lanesContainer = document.getElementById('lanes-container');
+                lanesContainer.innerHTML = '';
+                let allInfractions = [];
+                data.lanes.forEach((lane, index) => {
+                    lane.infractions.forEach(inf => allInfractions.push(inf));
+                    const card = document.createElement('div');
+                    card.className = `lane-card ${lane.id === data.active_lane_idx ? 'active-lane' : ''}`;
+                    let lightClass = lane.light.toLowerCase();
+                    if(lane.ambulance_detected) { hasAlerts = true; alertList.innerHTML += `<li>🚑 Ambulance in Lane ${index + 1}</li>`; }
+                    if(lane.accident_detected) { hasAlerts = true; alertList.innerHTML += `<li class="critical">💥 Accident in Lane ${index + 1}</li>`; }
+                    card.innerHTML = `
+                        <div class="lane-header"><h4>Lane ${index + 1}</h4>
+                            <div class="traffic-light">
+                                <span class="light red ${lightClass === 'red' ? 'on' : ''}"></span>
+                                <span class="light yellow ${lightClass === 'yellow' ? 'on' : ''}"></span>
+                                <span class="light green ${lightClass === 'green' ? 'on' : ''}"></span>
+                            </div>
+                        </div>
+                        <div class="lane-metrics"><div class="metric"><span class="label">PCU Density</span><span class="value">${lane.pcu.toFixed(1)}</span></div></div>`;
+                    lanesContainer.appendChild(card);
+                });
+                alertPanel.style.display = hasAlerts ? 'block' : 'none';
+                const infractionsList = document.getElementById('infractions-list');
+                infractionsList.innerHTML = '';
+                if (allInfractions.length === 0) {
+                    infractionsList.innerHTML = '<li class="empty-list">No infractions recorded yet.</li>';
+                } else {
+                    allInfractions.slice(0, 15).forEach(inf => {
+                        infractionsList.innerHTML += `<li class="infraction-item"><div class="infraction-details"><span class="plate">${inf.plate}</span><span class="infraction-meta">Lane ${inf.lane} · ${inf.type}</span></div><span class="speed">${inf.speed} km/h</span></li>`;
+                    });
+                }
+                const toggle = document.getElementById('police-toggle');
+                if (toggle.checked !== data.police_override) {
+                    toggle.checked = data.police_override;
+                    document.getElementById('police-status').innerText = data.police_override ? "👮 Manual Police Override: ON" : "👮 Manual Police Override: OFF";
+                }
+            } catch (error) { console.error("Error fetching state:", error); }
+        }
+
+        // ===== TESTING MODE: Upload =====
+        async function uploadTestVideo(file) {
+            if (!file) return;
+            document.getElementById('test-upload-spinner').style.display = 'block';
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const resp = await fetch('/api/test/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    document.getElementById('test-upload-zone').style.display = 'none';
+                    const stream = document.getElementById('test-video-stream');
+                    stream.style.display = 'block';
+                    stream.src = '/test_feed?t=' + Date.now();
+                    document.getElementById('test-controls-bar').style.display = 'flex';
+                    document.getElementById('test-badge').style.display = 'block';
+                }
+            } catch (e) { console.error('Upload failed:', e); alert('Upload failed.'); }
+            document.getElementById('test-upload-spinner').style.display = 'none';
+        }
+
+        // ===== TESTING MODE: Settings =====
+        async function applyTestSettings() {
+            const limit = parseInt(document.getElementById('test-speed-slider').value);
+            const mode = document.getElementById('test-display-mode').value;
+            try {
+                await fetch('/api/test/settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ speed_limit: limit, display_mode: mode })
+                });
+            } catch (e) { console.error('Settings failed:', e); }
+        }
+
+        // ===== TESTING MODE: Calibration =====
+        async function openTestCalibration() {
+            resetTestCalibration();
+            document.getElementById('test-calibration-modal').style.display = 'flex';
+            try {
+                const resp = await fetch('/api/test/capture_frame');
+                const data = await resp.json();
+                const canvas = document.getElementById('test-calib-canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                img.src = 'data:image/jpeg;base64,' + data.image;
+                canvas.onclick = handleTestCanvasClick;
+            } catch (e) { document.getElementById('test-calib-hint').textContent = '❌ No video loaded. Upload first.'; }
+        }
+        function closeTestCalibration() { document.getElementById('test-calibration-modal').style.display = 'none'; }
+
+        function resetTestCalibration() {
+            testCalibPoints = { p1: null, p2: null };
+            document.getElementById('test-p1-info').textContent = 'Line A: Not set';
+            document.getElementById('test-p2-info').textContent = 'Line B: Not set';
+            document.getElementById('test-px-dist').textContent = 'Pixel Gap: --';
+            document.getElementById('test-calib-confirm').disabled = true;
+            document.getElementById('test-calib-hint').textContent = 'Click on the frame to set Line A (top), then Line B (bottom).';
+        }
+
+        function handleTestCanvasClick(e) {
+            const canvas = document.getElementById('test-calib-canvas');
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            if (!testCalibPoints.p1) {
+                testCalibPoints.p1 = { x: Math.round(x), y: Math.round(y) };
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.8)'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#10b981'; ctx.font = 'bold 14px Inter'; ctx.fillText('LINE A', 10, y - 8);
+                document.getElementById('test-p1-info').textContent = 'Line A: Y=' + testCalibPoints.p1.y;
+                document.getElementById('test-calib-hint').textContent = 'Now click to set Line B.';
+            } else if (!testCalibPoints.p2) {
+                testCalibPoints.p2 = { x: Math.round(x), y: Math.round(y) };
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#ef4444'; ctx.font = 'bold 14px Inter'; ctx.fillText('LINE B', 10, y - 8);
+                const gap = Math.abs(testCalibPoints.p2.y - testCalibPoints.p1.y);
+                document.getElementById('test-p2-info').textContent = 'Line B: Y=' + testCalibPoints.p2.y;
+                document.getElementById('test-px-dist').textContent = 'Pixel Gap: ' + gap + ' px';
+                document.getElementById('test-calib-hint').textContent = '✅ Both lines set! Click Apply.';
+                document.getElementById('test-calib-confirm').disabled = false;
+                canvas.onclick = null;
+            }
+        }
+
+        async function applyTestCalibration() {
+            if (!testCalibPoints.p1 || !testCalibPoints.p2) return;
+            const realDist = parseFloat(document.getElementById('test-real-dist').value);
+            try {
+                await fetch('/api/test/calibrate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ p1: testCalibPoints.p1.y, p2: testCalibPoints.p2.y, real_m: realDist })
+                });
+                document.getElementById('test-calib-hint').textContent = '🎉 Calibration applied!';
+                setTimeout(closeTestCalibration, 1500);
+            } catch (e) { document.getElementById('test-calib-hint').textContent = '❌ Failed.'; }
+        }
+
+        // ===== TESTING MODE: State Polling =====
+        async function fetchTestState() {
+            if (currentMode !== 'testing') return;
+            try {
+                const resp = await fetch('/api/test/state');
+                const data = await resp.json();
+                document.getElementById('stat-tracked').textContent = data.tracked_count;
+                document.getElementById('stat-speeds').textContent = data.speed_count;
+                const list = document.getElementById('test-infractions-list');
+                if (data.infractions.length === 0) {
+                    list.innerHTML = '<li class="empty-list">No overspeeding detected yet.</li>';
+                } else {
+                    list.innerHTML = '';
+                    data.infractions.slice(0, 20).forEach(inf => {
+                        list.innerHTML += `<li class="infraction-item"><div class="infraction-details"><span class="plate">Vehicle #${inf.id}</span><span class="infraction-meta">${inf.type} · ${inf.timestamp}</span></div><span class="speed">${inf.speed} km/h</span></li>`;
+                    });
+                }
+            } catch (e) { console.error('Test poll failed:', e); }
+        }
+
+        // ===== Polling Loop =====
+        setInterval(() => {
+            fetchState();
+            fetchTestState();
+        }, 1000);
+        fetchState();
+    </script>
+</body>
+</html>

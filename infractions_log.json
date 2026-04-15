@@ -1,0 +1,58 @@
+[
+    {
+        "id": 35,
+        "lane": 2,
+        "timestamp": "2026-04-15 11:14:36",
+        "plate": "UNREADABLE",
+        "speed": "33.1",
+        "type": "Vehicle"
+    },
+    {
+        "id": 8,
+        "lane": 2,
+        "timestamp": "2026-04-15 11:14:24",
+        "plate": "UNREADABLE",
+        "speed": "48.8",
+        "type": "Vehicle"
+    },
+    {
+        "id": 69,
+        "lane": 2,
+        "timestamp": "2026-04-15 10:46:43",
+        "plate": "UNREADABLE",
+        "speed": "27.3",
+        "type": "Vehicle"
+    },
+    {
+        "id": 15,
+        "lane": 2,
+        "timestamp": "2026-04-15 10:46:39",
+        "plate": "UNREADABLE",
+        "speed": "28.8",
+        "type": "Vehicle"
+    },
+    {
+        "id": 35,
+        "lane": 2,
+        "timestamp": "2026-04-15 10:46:19",
+        "plate": "UNREADABLE",
+        "speed": "26.1",
+        "type": "Vehicle"
+    },
+    {
+        "id": 8,
+        "lane": 2,
+        "timestamp": "2026-04-15 10:46:10",
+        "plate": "UNREADABLE",
+        "speed": "35.7",
+        "type": "Vehicle"
+    },
+    {
+        "id": "test_obj_1",
+        "lane": 1,
+        "timestamp": "2026-04-12 17:06:30",
+        "plate": "ABC-123",
+        "speed": "75.5",
+        "type": "Car"
+    }
+]
