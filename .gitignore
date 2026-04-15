@@ -4,6 +4,9 @@
 *.avi
 uploads/
 
+# Environment files
+.env
+
 # Python cache
 __pycache__/
 *.py[cod]
