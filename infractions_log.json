@@ -1,5 +1,21 @@
 [
     {
+        "id": 52,
+        "lane": 2,
+        "timestamp": "2026-04-20 03:28:16",
+        "plate": "UNREADABLE",
+        "speed": "25.8",
+        "type": "Vehicle"
+    },
+    {
+        "id": 15,
+        "lane": 2,
+        "timestamp": "2026-04-20 03:27:55",
+        "plate": "UNREADABLE",
+        "speed": "36.4",
+        "type": "Vehicle"
+    },
+    {
         "id": 35,
         "lane": 2,
         "timestamp": "2026-04-15 11:14:36",

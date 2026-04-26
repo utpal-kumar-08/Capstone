@@ -87,6 +87,7 @@ class InferenceEngine:
         
         # Load variables inside init to ensure load_dotenv has run
         self.api_key = os.getenv("ROBOFLOW_API_KEY")
+        self.workspace_id = os.getenv("WORKSPACE_ID")
         self.model_id = os.getenv("MODEL_ID")
         self.version = os.getenv("VERSION", "1")
         
@@ -96,10 +97,13 @@ class InferenceEngine:
         self.pol_ver = os.getenv("POLICE_VERSION", "1")
         self.acc_model = os.getenv("ACCIDENT_MODEL_ID")
         self.acc_version = os.getenv("ACCIDENT_VERSION", "1")
+        self.acc_api_key = os.getenv("ACCIDENT_API_KEY", self.api_key)
+        self.acc_workspace = os.getenv("ACCIDENT_WORKSPACE_ID", self.workspace_id)
         
         # Diagnostic tracking
         self.last_status = {} # model_name -> status_code
         self.error_messages = {}
+        self.disabled_models = set()
 
         self.last_amb_preds = []
         self.last_pol_preds = []
@@ -113,10 +117,14 @@ class InferenceEngine:
         self.api_url = f"https://detect.roboflow.com/{self.model_id}/{self.version}?api_key={self.api_key}{params}"
         self.ambulance_api_url = f"https://detect.roboflow.com/{self.amb_model}/{self.amb_ver}?api_key={self.api_key}{params}"
         self.police_api_url = f"https://detect.roboflow.com/{self.pol_model}/{self.pol_ver}?api_key={self.api_key}{params}"
-        self.accident_api_url = f"https://detect.roboflow.com/{self.acc_model}/{self.acc_version}?api_key={self.api_key}{params}"
+        
+        self.accident_api_url = f"https://detect.roboflow.com/{self.acc_model}/{self.acc_version}?api_key={self.acc_api_key}{params}"
 
     async def _post_inference(self, url, img_str):
         if not url or "None" in url or "//" in url.split("roboflow.com")[-1]: return None
+        model_tag = url.split('/')[3]
+        if model_tag in self.disabled_models:
+            return None
         
         async with self.semaphore:
             try:
@@ -130,7 +138,7 @@ class InferenceEngine:
                 if response.status_code != 200:
                     msg = f"API Error: {response.status_code} - {response.text}"
                     if response.status_code == 403:
-                        model_tag = url.split('/')[3]
+                        self.disabled_models.add(model_tag)
                         msg = f"❌ AUTH ERROR: Model '{model_tag}' is Forbidden. Check Roboflow Key/Plan."
                     print(msg)
                     return {"predictions": [], "error": response.status_code}
@@ -227,7 +235,9 @@ class InferenceEngine:
     def _check_class_presence(self, data, *target_classes):
         if not data: return False
         for pred in data.get("predictions", []):
-            if any(tc in pred.get("class", "").lower() for tc in target_classes) and pred.get("confidence", 0) > 0.4:
+            # Lowered confidence threshold to 0.25 to prevent rejecting true positives,
+            # especially for the accident model which might output lower confidence bounds
+            if any(tc in pred.get("class", "").lower() for tc in target_classes) and pred.get("confidence", 0) > 0.25:
                 return True
         return False
 

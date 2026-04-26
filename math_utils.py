@@ -275,89 +275,60 @@ class SpeedCalculator:
         return active_speeds
 
 class AccidentVerificationEngine:
-    def __init__(self, verification_buffer_sec=5.0, deceleration_threshold=0.8, proximity_threshold=10):
+    def __init__(self, verification_buffer_sec=2.5, iou_threshold=0.3):
         self.verification_buffer_sec = verification_buffer_sec
-        self.deceleration_threshold = deceleration_threshold
-        self.proximity_threshold = proximity_threshold
-        
-        # History of speeds for deceleration calc: {object_id: [(timestamp, speed_kmh), ...]}
-        self.speed_history = {}
-        # History of possible collisions: {time: (id1, id2)}
-        self.collision_events = []
+        self.iou_threshold = iou_threshold
+        # Track when pairs of vehicles first started overlapping: {(id1, id2): timestamp}
+        self.overlapping_pairs = {}
         
     def check_accident(self, objects, bboxes, current_speeds):
         """
         objects: {id: (cX, cY)}
         bboxes: {id: (startX, startY, endX, endY)}
-        current_speeds: {id: speed_kmh} (real time speed if calculable or last known speed)
+        current_speeds: {id: speed_kmh}
         
-        Returns: boolean indicating if an confirmed accident is happening
+        Returns: boolean indicating if a confirmed accident is happening
         """
         current_time = time.time()
-        
-        # Clean up old speed history and collision events
-        self._cleanup(current_time)
-        
-        # Update speed history
-        for obj_id, speed in current_speeds.items():
-            if obj_id not in self.speed_history:
-                self.speed_history[obj_id] = []
-            self.speed_history[obj_id].append((current_time, speed))
-            
-        # Detect sudden deceleration
-        decelerated_ids = set()
-        for obj_id, history in self.speed_history.items():
-            if len(history) >= 2:
-                recent_speed = history[-1][1]
-                old_speed = history[0][1] # Oldest in our window
-                if old_speed > 10: # threshold to avoid div by zero or low speed noise
-                    drop_ratio = (old_speed - recent_speed) / old_speed
-                    if drop_ratio >= self.deceleration_threshold:
-                        decelerated_ids.add(obj_id)
-        
-        # Detect proximity
         object_ids = list(bboxes.keys())
+        current_overlaps = set()
+        
         for i in range(len(object_ids)):
             for j in range(i + 1, len(object_ids)):
                 id1 = object_ids[i]
                 id2 = object_ids[j]
                 
+                # Consistent ordering for dictionary keys
+                pair = (min(id1, id2), max(id1, id2))
+                
                 bb1 = bboxes[id1]
                 bb2 = bboxes[id2]
                 
-                # Bottom center proximity
-                bc1_x = (bb1[0] + bb1[2]) / 2.0
-                bc1_y = bb1[3]
+                # Calculate Intersection over Union (IoU)
+                x_left = max(bb1[0], bb2[0])
+                y_top = max(bb1[1], bb2[1])
+                x_right = min(bb1[2], bb2[2])
+                y_bottom = min(bb1[3], bb2[3])
                 
-                bc2_x = (bb2[0] + bb2[2]) / 2.0
-                bc2_y = bb2[3]
+                if x_right > x_left and y_bottom > y_top:
+                    intersection = (x_right - x_left) * (y_bottom - y_top)
+                    area1 = (bb1[2] - bb1[0]) * (bb1[3] - bb1[1])
+                    area2 = (bb2[2] - bb2[0]) * (bb2[3] - bb2[1])
+                    iou = intersection / float(area1 + area2 - intersection)
+                    
+                    if iou > self.iou_threshold:
+                        current_overlaps.add(pair)
+                        if pair not in self.overlapping_pairs:
+                            self.overlapping_pairs[pair] = current_time
+                        else:
+                            # If overlapping persists longer than the buffer, trigger accident
+                            if current_time - self.overlapping_pairs[pair] >= self.verification_buffer_sec:
+                                print(f"[WARNING] Mathematical Accident Triggered! Vehicles {id1} and {id2} overlapping for > {self.verification_buffer_sec}s")
+                                return True
+                                
+        # Cleanup pairs that are no longer overlapping
+        for pair in list(self.overlapping_pairs.keys()):
+            if pair not in current_overlaps:
+                del self.overlapping_pairs[pair]
                 
-                dist_px = np.sqrt((bc1_x - bc2_x)**2 + (bc1_y - bc2_y)**2)
-                
-                if dist_px < self.proximity_threshold:
-                    if id1 in decelerated_ids or id2 in decelerated_ids:
-                        self.collision_events.append(current_time)
-                        
-        # Verify if an accident is confirmed (i.e. event persists in the 5 second buffer)
-        # For simplicity, if we have recorded a collision event and the time difference 
-        # between first and last in buffer is > some duration, it's confirmed.
-        # Here we just trigger if we have recent events.
-        if len(self.collision_events) > 0:
-            # Let's say if we have a collision signature in the last 5 seconds, warning!
-            return True
         return False
-        
-    def _cleanup(self, current_time):
-        # Keep only history within buffer
-        for obj_id in list(self.speed_history.keys()):
-            self.speed_history[obj_id] = [
-                (t, s) for (t, s) in self.speed_history[obj_id] 
-                if current_time - t <= self.verification_buffer_sec
-            ]
-            if len(self.speed_history[obj_id]) == 0:
-                del self.speed_history[obj_id]
-                
-        self.collision_events = [
-            t for t in self.collision_events
-            if current_time - t <= self.verification_buffer_sec
-        ]

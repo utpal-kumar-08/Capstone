@@ -3,10 +3,11 @@ import cv2
 import time
 import base64
 import numpy as np
+from typing import Optional
+from fastapi import FastAPI, Request
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
 from inference_engine import InferenceEngine, run_ocr_tesseract
@@ -28,11 +29,19 @@ async def lifespan(app: FastAPI):
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
 
 app = FastAPI(title="Smart City AI Traffic Manager", lifespan=lifespan)
-# Template configuration - serve from templates/ directory
-templates = Jinja2Templates(directory=TEMPLATE_DIR)
+
+# Mount the static assets emitted by Vite
+app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+
+# Optionally serve favicon and bare files if needed, but index.html is crucial
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+    with open(index_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
 
 # Traffic Controller (4 Lanes)
 NUM_LANES = 4
@@ -76,7 +85,7 @@ ui_state = {
 }
 
 # Pre-open all video captures at module level for instant lane switching
-VIDEO_SOURCES = ["speedtest.mp4", "test_2.mp4", "test_3.mp4", "test_4.mov"]
+VIDEO_SOURCES = ["video2.mp4", "video2.mp4", "test_2.mp4", "test_3.mp4"]
 global_caps = []
 for _src in VIDEO_SOURCES:
     _cap = cv2.VideoCapture(_src)
@@ -218,8 +227,9 @@ async def process_lane(frame, lane_idx, video_time_sec=None):
                 if current_time - lane.last_ocr_time >= 2.0:
                     lane.last_ocr_time = current_time
                     bbox = lane.bboxes[objectID]
-                    plate_text = await run_ocr_tesseract(frame, bbox)
-                    lane.ocr_cache[objectID] = plate_text
+                    
+                    # Temporarily put a placeholder so it doesn't try OCR again immediately
+                    lane.ocr_cache[objectID] = "READING..."
                     
                     # Get actual class from predictions
                     v_class = "Vehicle"
@@ -228,7 +238,12 @@ async def process_lane(frame, lane_idx, video_time_sec=None):
                             v_class = p["class"]
                             break
                     
-                    lane.add_infraction(objectID, plate_text, speed, v_class)
+                    async def bg_ocr(f, b, oid, spd, vcls):
+                        plate_text = await run_ocr_tesseract(f, b)
+                        lane.ocr_cache[oid] = plate_text
+                        lane.add_infraction(oid, plate_text, spd, vcls)
+                        
+                    asyncio.create_task(bg_ocr(frame.copy(), bbox, objectID, speed, v_class))
                     
     return draw_lane_info(frame, lane_idx, predictions)
 
@@ -429,18 +444,21 @@ test_state_data = {
     "video_path": None,
     "speed_limit": 60.0,
     "display_mode": "both",  # "speed", "bbox", "both"
+    "test_type": "overspeed", # overspeed, accident
     "line_a": 200,
     "line_b": 350,
     "infractions": [],
     "running": False,
+    "accident_detected": False,
 }
-test_engine = InferenceEngine(skip_frames=3)
+test_engine = InferenceEngine(skip_frames=10)
 test_tracker = ByteTrackWrapper(track_activation_threshold=0.25, lost_track_buffer=30, minimum_matching_threshold=0.8, frame_rate=20)
 test_speed_calc = SpeedCalculator(line_a_y=200, line_b_y=350, sequence_pixels=150, lane_id=99)
 test_cap = None  # Will hold the VideoCapture for the test video
 test_objects = {}
 test_bboxes = {}
 test_speeds = {}
+test_accident_verifier = AccidentVerificationEngine(verification_buffer_sec=2.5, iou_threshold=0.3)
 
 @app.get("/test", response_class=HTMLResponse)
 async def test_page(request: Request):
@@ -472,6 +490,7 @@ async def upload_test_video(file: UploadFile = File(...)):
     test_objects = {}
     test_bboxes = {}
     test_speeds = {}
+    test_accident_verifier = AccidentVerificationEngine(verification_buffer_sec=2.5, iou_threshold=0.3)
     test_engine.frame_count = 0
     test_engine.last_predictions = []
     
@@ -499,54 +518,72 @@ async def generate_test_feed():
         video_ts = test_cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
         frame = cv2.resize(frame, (640, 480))
         
-        # 1. Detection
-        out = await test_engine.process_frame(frame, run_all_checks=False)
+        # 1. Detection (Run all checks ONLY if we are testing accident detection)
+        is_accident_test = (test_state_data["test_type"] == "accident")
+        out = await test_engine.process_frame(frame, run_all_checks=is_accident_test)
         predictions = out["traffic"]
+        
+        # Update global test state with accident detection info
+        test_state_data["accident_detected"] = out.get("accident", False)
         
         rects = [p["bbox"] for p in predictions]
         
-        # 2. Tracking
+        test_speeds = {}
+        
+        # 2. Tracking MUST run for BOTH modes (speed calculation needs it, and mathematical accident detection needs it)
         test_objects, test_bboxes = test_tracker.update(rects)
         
-        # 3. Speed calculation
-        test_speeds = test_speed_calc.update(test_objects, video_time_sec=video_ts)
-        
-        # 4. Check overspeeding
-        speed_limit = test_state_data["speed_limit"]
-        for objectID, speed in test_speeds.items():
-            if speed > speed_limit:
-                for p in predictions:
-                    if p["bbox"] == test_bboxes.get(objectID):
-                        p["is_speeding"] = True
-                
-                # Log infraction
-                exists = any(inf['id'] == objectID for inf in test_state_data["infractions"])
-                if not exists:
-                    test_state_data["infractions"].insert(0, {
-                        "id": objectID,
-                        "speed": f"{speed:.1f}",
-                        "type": "Vehicle",
-                        "timestamp": time.strftime("%H:%M:%S"),
-                    })
-                    test_state_data["infractions"] = test_state_data["infractions"][:30]
+        # Only do speed calculating if we're focused on overspeed
+        if test_state_data["test_type"] == "overspeed":
+            # 3. Speed calculation
+            test_speeds = test_speed_calc.update(test_objects, video_time_sec=video_ts)
+            
+            # 4. Check overspeeding
+            speed_limit = test_state_data["speed_limit"]
+            for objectID, speed in test_speeds.items():
+                if speed > speed_limit:
+                    for p in predictions:
+                        if p["bbox"] == test_bboxes.get(objectID):
+                            p["is_speeding"] = True
+                    
+                    # Log infraction
+                    exists = any(inf['id'] == objectID for inf in test_state_data["infractions"])
+                    if not exists:
+                        test_state_data["infractions"].insert(0, {
+                            "id": objectID,
+                            "speed": f"{speed:.1f}",
+                            "type": "Vehicle",
+                            "timestamp": time.strftime("%H:%M:%S"),
+                        })
+                        test_state_data["infractions"] = test_state_data["infractions"][:30]
+        else:
+            # If we are in accident testing mode, run the mathematical fallback
+            if test_accident_verifier.check_accident(test_objects, test_bboxes, test_speeds):
+                test_state_data["accident_detected"] = True
         
         # 5. Draw overlays
         display_mode = test_state_data["display_mode"]
         line_a = test_state_data["line_a"]
         line_b = test_state_data["line_b"]
-        
-        # Draw trap lines
-        cv2.line(frame, (0, line_a), (frame.shape[1], line_a), (0, 255, 0), 2)
-        cv2.line(frame, (0, line_b), (frame.shape[1], line_b), (0, 0, 255), 2)
-        cv2.putText(frame, "LINE A", (5, line_a - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-        cv2.putText(frame, "LINE B", (5, line_b - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
-        
-        # Speed limit badge
-        cv2.putText(frame, f"LIMIT: {speed_limit:.0f} km/h", (480, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+        if not is_accident_test:
+            # Draw trap lines
+            cv2.line(frame, (0, line_a), (frame.shape[1], line_a), (0, 255, 0), 2)
+            cv2.line(frame, (0, line_b), (frame.shape[1], line_b), (0, 0, 255), 2)
+            cv2.putText(frame, "LINE A", (5, line_a - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+            cv2.putText(frame, "LINE B", (5, line_b - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+            # Speed limit badge
+            cv2.putText(frame, f"LIMIT: {test_state_data['speed_limit']:.0f} km/h", (480, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
         cv2.putText(frame, "TESTING MODE", (5, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
         
-        show_bbox = display_mode in ("bbox", "both")
-        show_speed = display_mode in ("speed", "both")
+        if test_state_data["accident_detected"]:
+            # Flash warning on frame
+            cv2.rectangle(frame, (10, 40), (400, 85), (0, 0, 255), -1)
+            cv2.putText(frame, "!!! ACCIDENT DETECTED !!!", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 3)
+
+        show_bbox = (display_mode in ("bbox", "both")) and not is_accident_test
+        show_speed = (display_mode in ("speed", "both")) and not is_accident_test
         
         if show_bbox:
             for pred in predictions:
@@ -569,7 +606,7 @@ async def generate_test_feed():
                     cx = (bbox[0] + bbox[2]) // 2
                     cy = bbox[3] + 18
                     speed_text = f"{speed:.0f} km/h"
-                    speed_color = (0, 0, 255) if speed > speed_limit else (0, 255, 0)
+                    speed_color = (0, 0, 255) if speed > test_state_data["speed_limit"] else (0, 255, 0)
                     (tw, th), _ = cv2.getTextSize(speed_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
                     cv2.rectangle(frame, (cx - 35, cy - th - 5), (cx - 35 + tw + 10, cy + 5), (0, 0, 0), -1)
                     cv2.rectangle(frame, (cx - 35, cy - th - 5), (cx - 35 + tw + 10, cy + 5), speed_color, 2)
@@ -582,7 +619,7 @@ async def generate_test_feed():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.001)
 
 @app.get("/test_feed")
 async def test_feed():
@@ -632,21 +669,27 @@ async def test_calibrate(request: Request):
     
     return {"status": "success", "line_a": line_a, "line_b": line_b}
 
+class TestSettingsConfig(BaseModel):
+    speed_limit: Optional[int] = None
+    display_mode: Optional[str] = None
+    test_type: Optional[str] = None
+
 @app.post("/api/test/settings")
-async def test_settings(request: Request):
-    body = await request.json()
-    if "speed_limit" in body:
-        test_state_data["speed_limit"] = float(body["speed_limit"])
-    if "display_mode" in body:
-        if body["display_mode"] in ("speed", "bbox", "both"):
-            test_state_data["display_mode"] = body["display_mode"]
-    return {"status": "success", **test_state_data}
+async def update_test_settings(config: TestSettingsConfig):
+    if config.speed_limit is not None:
+        test_state_data["speed_limit"] = config.speed_limit
+    if config.display_mode is not None:
+        test_state_data["display_mode"] = config.display_mode
+    if config.test_type is not None:
+        test_state_data["test_type"] = config.test_type
+    return {"status": "success"}
 
 @app.get("/api/test/state")
 async def test_get_state():
     return {
         "speed_limit": test_state_data["speed_limit"],
         "display_mode": test_state_data["display_mode"],
+        "test_type": test_state_data["test_type"],
         "line_a": test_state_data["line_a"],
         "line_b": test_state_data["line_b"],
         "running": test_state_data["running"],

@@ -1,39 +1,27 @@
-import asyncio
 import httpx
-import base64
 import os
 from dotenv import load_dotenv
+import cv2
+import base64
+import numpy as np
 
 load_dotenv()
+api_key = os.getenv("ROBOFLOW_API_KEY")
+acc_api_key = os.getenv("ACCIDENT_API_KEY")
 
-ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
-MODEL_ID = os.getenv("MODEL_ID")
-VERSION = os.getenv("VERSION")
+dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
+success, buffer = cv2.imencode('.jpg', dummy_img)
+img_str = base64.b64encode(buffer).decode('utf-8')
 
-print(f"Testing with MODEL_ID: {MODEL_ID}, VERSION: {VERSION}")
+urls = [
+    f"https://detect.roboflow.com/jy516/capstone-cwifn/3?api_key={api_key}",
+    f"https://detect.roboflow.com/capstone-cwifn/3?api_key={api_key}",
+    f"https://detect.roboflow.com/jth00/traffic-accident-detection-whv7l/1?api_key={acc_api_key}",
+    f"https://detect.roboflow.com/traffic-accident-detection-whv7l/1?api_key={acc_api_key}"
+]
 
-async def test_inference():
-    # Just a blank image for testing API connectivity
-    import numpy as np
-    import cv2
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    success, buffer = cv2.imencode('.jpg', img)
-    img_str = base64.b64encode(buffer).decode('utf-8')
-    
-    url = f"https://detect.roboflow.com/{MODEL_ID}/{VERSION}?api_key={ROBOFLOW_API_KEY}"
-    print(f"URL: {url}")
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                url,
-                data=img_str,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
-            print(f"Status Code: {response.status_code}")
-            print(f"Response: {response.text}")
-        except Exception as e:
-            print(f"Request failed: {e}")
-
-if __name__ == "__main__":
-    asyncio.run(test_inference())
+for url in urls:
+    print(f"\nTesting POST {url.split('?')[0]} with its respective key")
+    resp = httpx.post(url, headers={'Content-Type': 'application/x-www-form-urlencoded'}, data=img_str)
+    print(f"Status Code: {resp.status_code}")
+    print(f"Response: {resp.text}")
